@@ -1,5 +1,7 @@
 package vn.hunghd.flutterdownloader;
 
+import android.util.Log;
+
 import android.annotation.SuppressLint;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -330,7 +332,10 @@ public class FlutterDownloaderPlugin implements MethodCallHandler, FlutterPlugin
                 String saveFilePath = task.savedDir + File.separator + filename;
                 File tempFile = new File(saveFilePath);
                 if (tempFile.exists()) {
-                    deleteFileInMediaStore(tempFile);
+                    // search the file in image store first
+                    if (!deleteFileInMediaStore(tempFile, MediaStore.Images.Media.EXTERNAL_CONTENT_URI))
+                        deleteFileInMediaStore(tempFile, MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+
                     tempFile.delete();
                 }
             }
@@ -344,41 +349,36 @@ public class FlutterDownloaderPlugin implements MethodCallHandler, FlutterPlugin
         }
     }
 
-    private void deleteFileInMediaStore(File file) {
-        // Set up the projection (we only need the ID)
-        String[] projection = {MediaStore.Images.Media._ID};
+    private boolean deleteFileInMediaStore(File file, Uri queryUri) {
+        Cursor cursor = null;
+        try {
+            // Set up the projection (we only need the ID)
+            String[] projection = {MediaStore.Images.Media._ID};
 
-        // Match on the file path
-        String imageSelection = MediaStore.Images.Media.DATA + " = ?";
-        String videoSelection = MediaStore.Video.Media.DATA + " = ?";
-        String[] selectionArgs = new String[]{file.getAbsolutePath()};
+            // Match on the file path
+            String imageSelection = MediaStore.Images.Media.DATA + " = ?";
+            String videoSelection = MediaStore.Video.Media.DATA + " = ?";
+            String[] selectionArgs = new String[]{file.getAbsolutePath()};
 
-        // Query for the ID of the media matching the file path
-        Uri imageQueryUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        Uri videoQueryUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+            ContentResolver contentResolver = context.getContentResolver();
 
-        ContentResolver contentResolver = context.getContentResolver();
-
-        // search the file in image store first
-        Cursor imageCursor = contentResolver.query(imageQueryUri, projection, imageSelection, selectionArgs, null);
-        if (imageCursor != null && imageCursor.moveToFirst()) {
-            // We found the ID. Deleting the item via the content provider will also remove the file
-            long id = imageCursor.getLong(imageCursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID));
-            Uri deleteUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-            contentResolver.delete(deleteUri, null, null);
-        } else {
-            // File not found in image store DB, try to search in video store
-            Cursor videoCursor = contentResolver.query(imageQueryUri, projection, imageSelection, selectionArgs, null);
-            if (videoCursor != null && videoCursor.moveToFirst()) {
+            // search the file in image store first
+            cursor = contentResolver.query(queryUri, projection, imageSelection, selectionArgs, null);
+            if (cursor != null && cursor.moveToFirst()) {
                 // We found the ID. Deleting the item via the content provider will also remove the file
-                long id = videoCursor.getLong(videoCursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID));
+                long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID));
                 Uri deleteUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
                 contentResolver.delete(deleteUri, null, null);
+
+                return true;
             } else {
-                // can not find the file in media store DB at all
+                return false;
             }
-            if (videoCursor != null) videoCursor.close();
+        } catch (Exception ex) {
+            Log.e(TAG, ex.getMessage());
+            return false;
+        } finally {
+            if (cursor != null) cursor.close();
         }
-        if (imageCursor != null) imageCursor.close();
     }
 }
